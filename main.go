@@ -58,11 +58,11 @@ var (
             Margin(2, 2)
 
     titleStyle = lipgloss.NewStyle().
-                BorderStyle(lipgloss.RoundedBorder()).
-                BorderForeground(lipgloss.Color("3")).
-                Padding(0, 1).
-                Foreground(lipgloss.Color("3")).
-                SetString("TUIpe Race")
+            BorderStyle(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("3")).
+            Padding(0, 1).
+            Foreground(lipgloss.Color("3")).
+            SetString("TUIpe Race")
 )
 
 func main() {
@@ -152,10 +152,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.typedText) > 0 {
 				m.typedText = m.typedText[:len(m.typedText)-1]
 			}
-		case "enter":
-			// End the test
-			m.endTime = time.Now()
-			m.calculateWPMAndAccuracy()
 		default:
             // only register single character
 			if len(msg.String()) == 1 {
@@ -166,7 +162,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.finished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
-
+                // TODO
+                // dont allow users to type after finish screen is showing
+                // or make it so it doesnt bring up race screen again
                 return m, func() tea.Msg { return tea.Quit() }
             }
 		}
@@ -201,7 +199,7 @@ func (m model) renderHeader() string {
 
 	return fmt.Sprintf(
  	    "%s\n%s WPM: %d   Accuracy: %.2f%%\nPress Ctrl+C to quit, Ctrl+R to restart.",
-		title, wpmStyle.Render("Typing Test"), wpm, accuracy,
+		    title, wpmStyle.Render("Typing Test"), wpm, accuracy,
 	)
 }
 
@@ -209,10 +207,14 @@ func (m model) renderTypingArea() string {
     var renderedText strings.Builder
     targetRunes := []rune(m.targetText)
     typedRunes := []rune(m.typedText)
+
+    targetLength := len(targetRunes)
+    typedLength := len(typedRunes)
+
     incorrectString := false
 
-    for i := 0; i < len(targetRunes); i++ {
-        if i < len(typedRunes) {
+    for i := 0; i < targetLength; i++ {
+        if i < typedLength {
             if typedRunes[i] == targetRunes[i] && !incorrectString {
                 // Correct characters
                 renderedText.WriteString(correctStyle.Render(string(typedRunes[i])))
@@ -224,7 +226,7 @@ func (m model) renderTypingArea() string {
             }
         } else {
             // Cursor (next character to be typed)
-            if i == len(typedRunes) {
+            if i == typedLength {
                 renderedText.WriteString(cursorStyle.Render(string(targetRunes[i])))
             } else {
                 // Untyped characters
@@ -242,7 +244,6 @@ func (m model) renderTypingArea() string {
     return strings.Join(stringArr, " ")
 }
 
-
 func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
     wordCount := len(strings.Fields(m.typedText))
@@ -257,6 +258,7 @@ func (m *model) calculateWPMAndAccuracy() {
     correctChars := 0
     typedLength := len(m.typedText)
     targetLength := len(m.targetText)
+
     for i := 0; i < typedLength && i < targetLength; i++ {
         if m.typedText[i] == m.targetText[i] {
             correctChars++
