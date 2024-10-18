@@ -12,13 +12,14 @@ import (
 )
 
 type model struct {
-	targetText string
-	typedText  string
-	started    bool
-	startTime  time.Time
-	endTime    time.Time
-	wpm        int
-	accuracy   float64
+	targetText  string
+	typedText   string
+	started     bool
+	startTime   time.Time
+	endTime     time.Time
+	wpm         int
+	accuracy    float64
+    wordList    WordList
 }
 
 type WordList struct {
@@ -73,36 +74,39 @@ func main() {
 }
 
 func initialModel() model {
-	return model{
-		targetText: randomSentence(),
-	}
-}
-
-// Better way to do loading JSON and randomizing string?
-// kinda slow to do every race
-func randomSentence() string {
     words, err := loadJSON("resources/wordlist.json")
-
     if err != nil {
         fmt.Println("Error loading JSON:", err)
         os.Exit(1)
     }
 
-    rand.Shuffle(len(words), func(i, j int) { words[i], words[j] = words[j], words[i] })
-    selected := words[:30]
+    wordList := WordList { Words: words }
+
+	return model{
+        wordList:   wordList,
+		targetText: randomSentence(wordList),
+	}
+}
+
+// Better way to do loading JSON and randomizing string?
+// kinda slow to do every race
+func randomSentence(words WordList) string {
+    rand.Shuffle(len(words.Words), func(i, j int) { words.Words[i], words.Words[j] = words.Words[j], words.Words[i] })
+    selected := words.Words[:30]
 
 	return strings.Join(selected, " ")
 }
 
 func loadJSON(fileName string) ([]string, error){
-    data, err := os.ReadFile(fileName)
+    file, err := os.Open(fileName)
     if err != nil {
         return nil, err
     }
+    defer file.Close()
 
     var wordList WordList
-    err = json.Unmarshal(data, &wordList)
-    if err != nil {
+    decoder := json.NewDecoder(file)
+    if err := decoder.Decode(&wordList); err != nil {
         return nil, err
     }
 
@@ -113,15 +117,27 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
+func ResetModel(m *model) {
+    m.targetText = randomSentence(m.wordList)
+    m.typedText = ""
+    m.started = false
+    m.wpm = 0
+    m.accuracy = 0
+    m.startTime = time.Time{}
+    m.endTime = time.Time{}
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle command keypresses first
-        // need ctrl+space to reset race
+        // need ctrl+r to reset race
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+        case "ctrl+r":
+            ResetModel(&m)
+            return m, nil
 		}
 
 		// Start timer on first keypress
@@ -150,6 +166,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.finished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
+
                 return m, func() tea.Msg { return tea.Quit() }
             }
 		}
@@ -160,7 +177,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
     if m.finished() {
-        return layoutStyle.Render(fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%", m.wpm, m.accuracy))
+        return layoutStyle.Render(
+            fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%",
+                        m.wpm, m.accuracy))
     }
 
 	header := m.renderHeader()
@@ -181,7 +200,7 @@ func (m model) renderHeader() string {
 	}
 
 	return fmt.Sprintf(
- 	    "%s\n%s WPM: %d   Accuracy: %.2f%%\nPress Ctrl+C to quit.",
+ 	    "%s\n%s WPM: %d   Accuracy: %.2f%%\nPress Ctrl+C to quit, Ctrl+R to restart.",
 		title, wpmStyle.Render("Typing Test"), wpm, accuracy,
 	)
 }
@@ -215,10 +234,9 @@ func (m model) renderTypingArea() string {
     }
 
     // adding nextLine escape characters every 10 strings
-    textString := renderedText.String()
-    stringArr := strings.Split(textString, " ")
+    stringArr := strings.Fields(renderedText.String())
     for i := 9; i < len(stringArr); i+=10 {
-        stringArr[i] = stringArr[i] + "\n"
+        stringArr[i] += "\n"
     }
 
     return strings.Join(stringArr, " ")
@@ -237,14 +255,16 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 
     correctChars := 0
-    for i := 0; i < len(m.typedText); i++ {
-        if i < len(m.targetText) && m.typedText[i] == m.targetText[i] {
+    typedLength := len(m.typedText)
+    targetLength := len(m.targetText)
+    for i := 0; i < typedLength && i < targetLength; i++ {
+        if m.typedText[i] == m.targetText[i] {
             correctChars++
         }
     }
 
-    if len(m.typedText) > 0 {
-        m.accuracy = (float64(correctChars) / float64(len(m.typedText))) * 100
+    if typedLength > 0 {
+        m.accuracy = (float64(correctChars) / float64(typedLength)) * 100
     } else {
         m.accuracy = 0
     }
@@ -254,4 +274,3 @@ func (m *model) calculateWPMAndAccuracy() {
 func (m model) finished() bool {
 	return m.started && m.targetText == m.typedText
 }
-
