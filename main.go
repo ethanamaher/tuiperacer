@@ -55,7 +55,8 @@ var (
 
 	layoutStyle  = lipgloss.NewStyle().
             Align(lipgloss.Center).
-            Margin(2, 2)
+            Margin(2, 2).
+            Width(60)
 
     titleStyle = lipgloss.NewStyle().
             BorderStyle(lipgloss.RoundedBorder()).
@@ -91,9 +92,10 @@ func initialModel() model {
 // Better way to do loading JSON and randomizing string?
 // kinda slow to do every race
 func randomSentence(words WordList) string {
-    rand.Shuffle(len(words.Words), func(i, j int) { words.Words[i], words.Words[j] = words.Words[j], words.Words[i] })
-    selected := words.Words[:30]
-
+    selected := make([]string, len(words.Words))
+    copy(selected, words.Words)
+    rand.Shuffle(len(words.Words), func(i, j int) { selected[i], selected[j] = selected[j], selected[i] })
+    selected = selected[:30]
 	return strings.Join(selected, " ")
 }
 
@@ -128,6 +130,11 @@ func ResetModel(m *model) {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    // prevent typing after race end
+    if m.finished() {
+        return m, nil
+    }
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle command keypresses first
@@ -235,13 +242,7 @@ func (m model) renderTypingArea() string {
         }
     }
 
-    // adding nextLine escape characters every 10 strings
-    stringArr := strings.Fields(renderedText.String())
-    for i := 9; i < len(stringArr); i+=10 {
-        stringArr[i] += "\n"
-    }
-
-    return strings.Join(stringArr, " ")
+    return renderedText.String()
 }
 
 func (m *model) calculateWPMAndAccuracy() {
