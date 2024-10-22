@@ -92,6 +92,8 @@ func initialModel() model {
 // Better way to do loading JSON and randomizing string?
 // kinda slow to do every race
 func randomSentence(words WordList) string {
+    // maybe instead of shuffling it would be faster to choose 30 random numbers and deal with collisions
+
     selected := make([]string, len(words.Words))
     copy(selected, words.Words)
     rand.Shuffle(len(words.Words), func(i, j int) { selected[i], selected[j] = selected[j], selected[i] })
@@ -249,12 +251,6 @@ func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
     wordCount := len(strings.Fields(m.typedText))
     m.wpm = int(float64(wordCount) / elapsedMinutes)
-
-    // cant have negative wpm
-    // idk why this was a problem
-    if m.wpm < 0 {
-        m.wpm = 0
-    }
 
     correctChars := 0
     typedLength := len(m.typedText)
