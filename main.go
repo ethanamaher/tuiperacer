@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
     "os"
-    "math/rand"
+    "math/rand/v2"
     "encoding/json"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -74,6 +74,10 @@ func main() {
 	}
 }
 
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
 func initialModel() model {
     words, err := loadJSON("resources/wordlist.json")
     if err != nil {
@@ -85,20 +89,31 @@ func initialModel() model {
 
 	return model{
         wordList:   wordList,
-		targetText: randomSentence(wordList),
+		targetText: randomSentence(wordList, 30),
 	}
 }
 
-// Better way to do loading JSON and randomizing string?
-// kinda slow to do every race
-func randomSentence(words WordList) string {
-    // maybe instead of shuffling it would be faster to choose 30 random numbers and deal with collisions
+func randomSentence(words WordList, wordCount int) string {
+    selectedWords := make([]string, 0)
+    existing := make(map[int]struct{}, 0)
+    for i := 0; i < wordCount; i++ {
+        randomIndex := randomIndex(len(words.Words), existing)
+        selectedWords = append(selectedWords, words.Words[randomIndex])
+    }
 
-    selected := make([]string, len(words.Words))
-    copy(selected, words.Words)
-    rand.Shuffle(len(words.Words), func(i, j int) { selected[i], selected[j] = selected[j], selected[i] })
-    selected = selected[:30]
-	return strings.Join(selected, " ")
+    return strings.Join(selectedWords, " ")
+}
+
+func randomIndex(size int, existingIndexes map[int]struct{}) int {
+    for {
+        randomIndex := rand.IntN(size)
+
+        _, exists := existingIndexes[randomIndex]
+        if !exists {
+            existingIndexes[randomIndex] = struct{}{}
+            return randomIndex
+        }
+    }
 }
 
 func loadJSON(fileName string) ([]string, error){
@@ -117,12 +132,8 @@ func loadJSON(fileName string) ([]string, error){
     return wordList.Words, nil
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
 func ResetModel(m *model) {
-    m.targetText = randomSentence(m.wordList)
+    m.targetText = randomSentence(m.wordList, 30)
     m.typedText = ""
     m.started = false
     m.wpm = 0
@@ -162,18 +173,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.typedText = m.typedText[:len(m.typedText)-1]
 			}
 		default:
-            // only register single character
 			if len(msg.String()) == 1 {
 				m.typedText += msg.String()
-				m.calculateWPMAndAccuracy() // Update metrics in real-time
+				m.calculateWPMAndAccuracy()
 			}
 
             if m.finished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
-                // TODO
-                // dont allow users to type after finish screen is showing
-                // or make it so it doesnt bring up race screen again
                 return m, func() tea.Msg { return tea.Quit() }
             }
 		}
@@ -212,6 +219,10 @@ func (m model) renderHeader() string {
 	)
 }
 
+// fill in correct chars after incorrectString
+// i.e.
+// return != reyrun | return == reyrunturn
+//           WWXXXX             WWXXXX
 func (m model) renderTypingArea() string {
     var renderedText strings.Builder
     targetRunes := []rune(m.targetText)
@@ -250,7 +261,6 @@ func (m model) renderTypingArea() string {
 func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
     wordCount := len(strings.Fields(m.typedText))
-    m.wpm = int(float64(wordCount) / elapsedMinutes)
 
     correctChars := 0
     typedLength := len(m.typedText)
@@ -264,8 +274,10 @@ func (m *model) calculateWPMAndAccuracy() {
 
     if typedLength > 0 {
         m.accuracy = (float64(correctChars) / float64(typedLength)) * 100
+        m.wpm = int(float64(wordCount) / elapsedMinutes)
     } else {
         m.accuracy = 0
+        m.wpm = 0
     }
 }
 
