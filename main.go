@@ -11,6 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+    DEFAULT_COUNT int = 30
+)
 type model struct {
 	targetText  string
 	typedText   string
@@ -89,7 +92,7 @@ func initialModel() model {
 
 	return model{
         wordList:   wordList,
-		targetText: randomSentence(wordList, 30),
+		targetText: randomSentence(wordList, DEFAULT_COUNT),
 	}
 }
 
@@ -133,7 +136,7 @@ func loadJSON(fileName string) ([]string, error){
 }
 
 func ResetModel(m *model) {
-    m.targetText = randomSentence(m.wordList, 30)
+    m.targetText = randomSentence(m.wordList, DEFAULT_COUNT)
     m.typedText = ""
     m.started = false
     m.wpm = 0
