@@ -26,7 +26,7 @@ type model struct {
 }
 
 type WordList struct {
-    Words []string `json:"commonWords"`
+    Words []string `json:"words"`
 }
 
 // Color Guide
