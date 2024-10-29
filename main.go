@@ -278,6 +278,11 @@ func (m *model) calculateWPMAndAccuracy() {
     if typedLength > 0 {
         m.accuracy = (float64(correctChars) / float64(typedLength)) * 100
         m.wpm = int(float64(wordCount) / elapsedMinutes)
+
+        if m.wpm < 0 {
+            m.wpm = 0
+        }
+
     } else {
         m.accuracy = 0
         m.wpm = 0
