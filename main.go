@@ -96,6 +96,21 @@ func initialModel() model {
 	}
 }
 
+func loadJSON(fileName string) ([]string, error){
+    file, err := os.Open(fileName)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    var wordList WordList
+    decoder := json.NewDecoder(file)
+    if err := decoder.Decode(&wordList); err != nil {
+        return nil, err
+    }
+
+    return wordList.Words, nil
+}
 func randomSentence(words WordList, wordCount int) string {
     selectedWords := make([]string, 0)
     existing := make(map[int]struct{}, 0)
@@ -117,22 +132,6 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
             return randomIndex
         }
     }
-}
-
-func loadJSON(fileName string) ([]string, error){
-    file, err := os.Open(fileName)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
-
-    var wordList WordList
-    decoder := json.NewDecoder(file)
-    if err := decoder.Decode(&wordList); err != nil {
-        return nil, err
-    }
-
-    return wordList.Words, nil
 }
 
 func ResetModel(m *model) {
@@ -226,6 +225,7 @@ func (m model) renderHeader() string {
 // i.e.
 // return != reyrun | return == reyrunturn
 //           WWXXXX             WWXXXX
+
 func (m model) renderTypingArea() string {
     var renderedText strings.Builder
     targetRunes := []rune(m.targetText)
@@ -234,28 +234,40 @@ func (m model) renderTypingArea() string {
     targetLength := len(targetRunes)
     typedLength := len(typedRunes)
 
-    incorrectString := false
+    incorrectIndex := -1
 
-    for i := 0; i < targetLength; i++ {
-        if i < typedLength {
-            if typedRunes[i] == targetRunes[i] && !incorrectString {
-                // Correct characters
-                renderedText.WriteString(correctStyle.Render(string(typedRunes[i])))
-            } else {
-                // Once an incorrect character is found, set the flag
-                incorrectString = true
-                // Incorrect characters
-                renderedText.WriteString(wrongStyle.Render(string(typedRunes[i])))
-            }
-        } else {
-            // Cursor (next character to be typed)
-            if i == typedLength {
-                renderedText.WriteString(cursorStyle.Render(string(targetRunes[i])))
-            } else {
-                // Untyped characters
-                renderedText.WriteString(normalStyle.Render(string(targetRunes[i])))
-            }
+    // Identify the first incorrect character
+    for i := 0; i < typedLength && i < targetLength; i++ {
+        if typedRunes[i] != targetRunes[i] {
+            incorrectIndex = i
+            break
         }
+    }
+
+    // Render correct characters up to the first incorrect character or end of typed text
+    for i := 0; i < typedLength && (incorrectIndex == -1 || i < incorrectIndex); i++ {
+        renderedText.WriteString(correctStyle.Render(string(typedRunes[i])))
+    }
+
+    // Render incorrectly typed characters, starting from the first incorrect character
+    if incorrectIndex != -1 {
+        for i := incorrectIndex; i < typedLength; i++ {
+            renderedText.WriteString(wrongStyle.Render(string(typedRunes[i])))
+        }
+
+        renderedText.WriteString(cursorStyle.Render(string(targetRunes[incorrectIndex])))
+    } else {
+        renderedText.WriteString(cursorStyle.Render(string(targetRunes[typedLength])))
+    }
+
+    // Render remaining characters in the target text from where the error occurred or the typed text ended
+    start := typedLength + 1
+    if incorrectIndex != -1 {
+        start = incorrectIndex + 1
+    }
+
+    for i := start; i < targetLength; i++ {
+        renderedText.WriteString(normalStyle.Render(string(targetRunes[i])))
     }
 
     return renderedText.String()
