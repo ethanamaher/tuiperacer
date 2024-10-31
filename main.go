@@ -221,11 +221,6 @@ func (m model) renderHeader() string {
 	)
 }
 
-// fill in correct chars after incorrectString
-// i.e.
-// return != reyrun | return == reyrunturn
-//           WWXXXX             WWXXXX
-
 func (m model) renderTypingArea() string {
     var renderedText strings.Builder
     targetRunes := []rune(m.targetText)
@@ -236,7 +231,7 @@ func (m model) renderTypingArea() string {
 
     incorrectIndex := -1
 
-    // Identify the first incorrect character
+    // Find the first incorrect character
     for i := 0; i < typedLength && i < targetLength; i++ {
         if typedRunes[i] != targetRunes[i] {
             incorrectIndex = i
