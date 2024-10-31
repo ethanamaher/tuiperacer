@@ -12,7 +12,7 @@ import (
 )
 
 const (
-    DEFAULT_COUNT int = 30
+    DEFAULT_COUNT int = 15
 )
 type model struct {
 	targetText  string
@@ -96,6 +96,8 @@ func initialModel() model {
 	}
 }
 
+// improve speed on json loading
+// go-json?
 func loadJSON(fileName string) ([]string, error){
     file, err := os.Open(fileName)
     if err != nil {
@@ -111,6 +113,7 @@ func loadJSON(fileName string) ([]string, error){
 
     return wordList.Words, nil
 }
+
 func randomSentence(words WordList, wordCount int) string {
     selectedWords := make([]string, 0)
     existing := make(map[int]struct{}, 0)
