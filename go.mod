@@ -5,6 +5,7 @@ go 1.23.2
 require (
 	github.com/charmbracelet/bubbletea v1.1.1
 	github.com/charmbracelet/lipgloss v0.13.0
+	github.com/mattn/go-sqlite3 v1.14.24
 )
 
 require (

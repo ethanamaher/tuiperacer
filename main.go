@@ -5,10 +5,14 @@ import (
 	"strings"
 	"time"
     "os"
+    "log"
     "math/rand/v2"
     "encoding/json"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -23,6 +27,9 @@ type model struct {
 	wpm         int
 	accuracy    float64
     wordList    WordList
+
+    db *sql.DB
+    leaderboard []LeaderboardEntry
 }
 
 type WordList struct {
@@ -70,8 +77,16 @@ var (
 )
 
 func main() {
-	p := tea.NewProgram(initialModel())
 
+    db, err := sql.Open("sqlite3", "leaderboard.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+
+    initDatabase(db)
+
+	p := tea.NewProgram(initialModel(db))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
@@ -81,7 +96,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func initialModel() model {
+func initialModel(db *sql.DB) model {
     words, err := loadJSON("resources/wordlist.json")
     if err != nil {
         fmt.Println("Error loading JSON:", err)
@@ -89,10 +104,12 @@ func initialModel() model {
     }
 
     wordList := WordList { Words: words }
-
+    leaderboard := fetchLeaderboard(db)
 	return model{
         wordList:   wordList,
 		targetText: randomSentence(wordList, DEFAULT_COUNT),
+        db: db,
+        leaderboard: leaderboard,
 	}
 }
 
@@ -186,9 +203,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.finished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
+
+                saveToLeaderboard(m.db, "Player One", m.wpm)
+
+                m.leaderboard = fetchLeaderboard(m.db)
                 return m, func() tea.Msg { return tea.Quit() }
             }
-		}
+}
 	}
 
 	return m, nil
@@ -196,14 +217,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
     if m.finished() {
+        leaderboardView := m.renderLeaderboard()
         return layoutStyle.Render(
-            fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%",
-                        m.wpm, m.accuracy))
+            fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%\n\n%s",
+                        m.wpm, m.accuracy, leaderboardView),)
     }
+
 
 	header := m.renderHeader()
 	typingArea := m.renderTypingArea()
 	return layoutStyle.Render(fmt.Sprintf("%s\n\n%s", header, typingArea))
+}
+
+func (m model) renderLeaderboard() string {
+    var render strings.Builder
+    render.WriteString("Leaderboard\n\n")
+    for i, entry := range m.leaderboard {
+        render.WriteString(fmt.Sprintf("%d. %s - %d WPM\n", i+1, entry.Name, entry.WPM))
+    }
+    return render.String()
 }
 
 func (m model) renderHeader() string {
@@ -298,7 +330,6 @@ func (m *model) calculateWPMAndAccuracy() {
         m.wpm = 0
     }
 }
-
 
 func (m model) finished() bool {
 	return m.started && m.targetText == m.typedText
