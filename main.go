@@ -51,8 +51,12 @@ var (
             Foreground(lipgloss.Color("15")).
             Bold(true)
 
-	wrongStyle   = lipgloss.NewStyle().
+	incorrectStyle   = lipgloss.NewStyle().
             Foreground(lipgloss.Color("9")).
+            Bold(true)
+
+    extraTextStyle  = lipgloss.NewStyle().
+            Foreground(lipgloss.Color("1")).
             Bold(true)
 
 	cursorStyle  = lipgloss.NewStyle().
@@ -159,20 +163,6 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
             return randomIndex
         }
     }
-}
-
-func matchingPrefixLength(a string, b string) int {
-    length := 0
-
-    for i := 0; i < len(a) && i < len(b); i++ {
-        if a[i] == b[i] {
-            length++
-        } else {
-            break
-        }
-    }
-
-    return length
 }
 
 func ResetModel(m *model) {
@@ -295,37 +285,8 @@ func (m model) renderTypingArea() string {
             typedWord = m.typedWords[i]
         }
 
-        if i < m.currentWordIndex {
-            if typedWord == targetWord {
-                renderedText.WriteString(correctStyle.Render(targetWord))
-            } else {
-                renderedText.WriteString(wrongStyle.Render(typedWord))
-            }
-        } else if i == m.currentWordIndex {
-            if typedWord == targetWord { // if word correct
-                renderedText.WriteString(correctStyle.Render(targetWord))
-
-            } else if strings.HasPrefix(targetWord, typedWord) { // if typed portion is correct so far
-                // correct portion
-                renderedText.WriteString(correctStyle.Render(typedWord))
-
-                // cursor
-                renderedText.WriteString(cursorStyle.Render(string(targetWord[len(typedWord)])))
-
-                // to type portion
-                renderedText.WriteString(normalStyle.Render(targetWord[len(typedWord)+1:]))
-            } else { // if typed portion has incorrect part
-                correctLength := matchingPrefixLength(targetWord, typedWord)
-                // print correct portion of string
-                renderedText.WriteString(correctStyle.Render(typedWord[:correctLength]))
-
-                // print incorrect portion of string
-                renderedText.WriteString(wrongStyle.Render(typedWord[correctLength:len(typedWord)]))
-
-                // print rest of word to type
-                renderedText.WriteString(cursorStyle.Render(string(targetWord[correctLength])))
-                renderedText.WriteString(normalStyle.Render(targetWord[correctLength+1:]))
-            }
+        if i <= m.currentWordIndex {
+            renderedText.WriteString(styleText(targetWord, typedWord))
         } else {
             renderedText.WriteString(normalStyle.Render(targetWord))
         }
@@ -333,6 +294,37 @@ func (m model) renderTypingArea() string {
         if i < len(m.targetWords) - 1 {
             renderedText.WriteString(" ")
         }
+    }
+
+    return renderedText.String()
+}
+
+func styleText(targetWord string, typedWord string) string {
+    var renderedText strings.Builder
+
+    for i := 0; i < len(targetWord); i++ {
+        // go up to length of typed text coloring each character
+        if i < len(typedWord) {
+            if targetWord[i] == typedWord[i] {
+                // correct chars
+                renderedText.WriteString(correctStyle.Render(string(targetWord[i])))
+            } else {
+                // incorrect chars
+                renderedText.WriteString(incorrectStyle.Render(string(typedWord[i])))
+            }
+        // this char is always cursor or " "
+        } else if i == len(typedWord) {
+            // cursor
+            renderedText.WriteString(cursorStyle.Render(string(targetWord[i])))
+        // anything past typed text in target is rendered as normal
+        } else {
+            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
+        }
+    }
+
+    // if typed more than target color chars darker
+    if len(typedWord) > len(targetWord) {
+        renderedText.WriteString(extraTextStyle.Render(typedWord[len(targetWord):]))
     }
 
     return renderedText.String()
