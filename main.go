@@ -20,7 +20,10 @@ const (
 )
 type model struct {
 	targetText  string
-	typedText   string
+    targetWords []string
+	typedWords  []string
+    currentWordIndex int
+
 	started     bool
 	startTime   time.Time
 	endTime     time.Time
@@ -77,16 +80,15 @@ var (
 )
 
 func main() {
-
     db, err := sql.Open("sqlite3", "resources/leaderboard.db")
     if err != nil {
         log.Fatal(err)
     }
     defer db.Close()
 
-    initDatabase(db)
+    initializeDatabase(db)
 
-	p := tea.NewProgram(initialModel(db))
+	p := tea.NewProgram(initializeModel(db))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
@@ -96,7 +98,7 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
-func initialModel(db *sql.DB) model {
+func initializeModel(db *sql.DB) model {
     words, err := loadJSON("resources/wordlist.json")
     if err != nil {
         fmt.Println("Error loading JSON:", err)
@@ -104,10 +106,15 @@ func initialModel(db *sql.DB) model {
     }
 
     wordList := WordList { Words: words }
+    targetText := randomSentence(wordList, DEFAULT_COUNT)
+    targetWords := strings.Fields(targetText)
     leaderboard := fetchLeaderboard(db)
 	return model{
         wordList:   wordList,
-		targetText: randomSentence(wordList, DEFAULT_COUNT),
+		targetText: targetText,
+        targetWords: targetWords,
+        typedWords: make([]string, len(targetWords)),
+        currentWordIndex: 0,
         db: db,
         leaderboard: leaderboard,
 	}
@@ -156,8 +163,10 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
 
 func ResetModel(m *model) {
     m.targetText = randomSentence(m.wordList, DEFAULT_COUNT)
-    m.typedText = ""
+    m.targetWords = strings.Fields(m.targetText)
+    m.typedWords = make([]string, len(m.targetWords))
     m.started = false
+    m.currentWordIndex = 0
     m.wpm = 0
     m.accuracy = 0
     m.startTime = time.Time{}
@@ -166,7 +175,7 @@ func ResetModel(m *model) {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     // prevent typing after race end
-    if m.finished() {
+    if m.isRaceFinished() {
         return m, nil
     }
 
@@ -183,40 +192,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Start timer on first keypress
-		if !m.started && len(m.typedText) == 0 {
+		if !m.started && len(m.typedWords) == 0 {
 			m.started = true
 			m.startTime = time.Now()
 		}
 
-		// Handle regular typing and backspace
+		// Handle regular keystrokes
 		switch msg.String() {
+        // go to next word on " "
+        case " ":
+            if m.currentWordIndex < len(m.targetWords) {
+                m.currentWordIndex++
+            }
+        return m, nil
 		case "backspace":
-			if len(m.typedText) > 0 {
-				m.typedText = m.typedText[:len(m.typedText)-1]
-			}
+            // go to previous word
+            if m.currentWordIndex > 0 && len(m.typedWords[m.currentWordIndex]) == 0 {
+                m.currentWordIndex--
+            } else if len(m.typedWords[m.currentWordIndex]) > 0 {
+                m.typedWords[m.currentWordIndex] = m.typedWords[m.currentWordIndex][:len(m.typedWords[m.currentWordIndex])-1]
+            }
 		default:
 			if len(msg.String()) == 1 {
-				m.typedText += msg.String()
-				m.calculateWPMAndAccuracy()
-			}
+                if m.currentWordIndex < len(m.targetWords) {
+                    m.typedWords[m.currentWordIndex] += msg.String()
+                }
+            }
 
-            if m.finished() {
+            m.calculateWPMAndAccuracy()
+
+            if m.isRaceFinished() {
                 m.endTime = time.Now()
-                m.calculateWPMAndAccuracy()
 
                 saveToLeaderboard(m.db, "Player One", m.wpm)
 
                 m.leaderboard = fetchLeaderboard(m.db)
                 return m, func() tea.Msg { return tea.Quit() }
             }
-}
+        }
 	}
 
 	return m, nil
 }
 
 func (m model) View() string {
-    if m.finished() {
+    if m.isRaceFinished() {
         leaderboardView := m.renderLeaderboard()
         return layoutStyle.Render(
             fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%\n\n%s",
@@ -258,46 +278,36 @@ func (m model) renderHeader() string {
 
 func (m model) renderTypingArea() string {
     var renderedText strings.Builder
-    targetRunes := []rune(m.targetText)
-    typedRunes := []rune(m.typedText)
 
-    targetLength := len(targetRunes)
-    typedLength := len(typedRunes)
-
-    incorrectIndex := -1
-
-    // Find the first incorrect character
-    for i := 0; i < typedLength && i < targetLength; i++ {
-        if typedRunes[i] != targetRunes[i] {
-            incorrectIndex = i
-            break
-        }
-    }
-
-    // Render correct characters up to the first incorrect character or end of typed text
-    for i := 0; i < typedLength && (incorrectIndex == -1 || i < incorrectIndex); i++ {
-        renderedText.WriteString(correctStyle.Render(string(typedRunes[i])))
-    }
-
-    // Render incorrectly typed characters, starting from the first incorrect character
-    if incorrectIndex != -1 {
-        for i := incorrectIndex; i < typedLength; i++ {
-            renderedText.WriteString(wrongStyle.Render(string(typedRunes[i])))
+    for i, targetWord := range m.targetWords {
+        typedWord := ""
+        if i < len(m.typedWords) {
+            typedWord = m.typedWords[i]
         }
 
-        renderedText.WriteString(cursorStyle.Render(string(targetRunes[incorrectIndex])))
-    } else {
-        renderedText.WriteString(cursorStyle.Render(string(targetRunes[typedLength])))
-    }
+        if i < m.currentWordIndex {
+            if typedWord == targetWord {
+                renderedText.WriteString(correctStyle.Render(targetWord))
+            } else {
+                renderedText.WriteString(wrongStyle.Render(typedWord))
+            }
+        } else if i == m.currentWordIndex {
+            if typedWord == targetWord {
+                renderedText.WriteString(correctStyle.Render(targetWord))
+            } else if strings.HasPrefix(targetWord, typedWord) {
+                renderedText.WriteString(correctStyle.Render(typedWord))
+                renderedText.WriteString(cursorStyle.Render(string(targetWord[len(typedWord)])))
+                renderedText.WriteString(normalStyle.Render(targetWord[len(typedWord)+1:]))
+            } else {
+                renderedText.WriteString(wrongStyle.Render(typedWord))
+            }
+        } else {
+            renderedText.WriteString(normalStyle.Render(targetWord))
+        }
 
-    // Render remaining characters in the target text from where the error occurred or the typed text ended
-    start := typedLength + 1
-    if incorrectIndex != -1 {
-        start = incorrectIndex + 1
-    }
-
-    for i := start; i < targetLength; i++ {
-        renderedText.WriteString(normalStyle.Render(string(targetRunes[i])))
+        if i < len(m.targetWords) - 1 {
+            renderedText.WriteString(" ")
+        }
     }
 
     return renderedText.String()
@@ -305,14 +315,14 @@ func (m model) renderTypingArea() string {
 
 func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
-    wordCount := len(strings.Fields(m.typedText))
+    wordCount := len(m.targetWords)
 
     correctChars := 0
-    typedLength := len(m.typedText)
+    typedLength := len(m.typedWords)
     targetLength := len(m.targetText)
 
     for i := 0; i < typedLength && i < targetLength; i++ {
-        if m.typedText[i] == m.targetText[i] {
+        if m.typedWords[i] == m.targetWords[i] {
             correctChars++
         }
     }
@@ -331,6 +341,6 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 }
 
-func (m model) finished() bool {
-	return m.started && m.targetText == m.typedText
+func (m model) isRaceFinished() bool {
+	return m.started && m.currentWordIndex >= len(m.targetWords) - 1
 }
