@@ -78,7 +78,7 @@ var (
 
 func main() {
 
-    db, err := sql.Open("sqlite3", "leaderboard.db")
+    db, err := sql.Open("sqlite3", "resources/leaderboard.db")
     if err != nil {
         log.Fatal(err)
     }

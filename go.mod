@@ -1,4 +1,4 @@
-module bubbletea
+module tuiperacer
 
 go 1.23.2
 
