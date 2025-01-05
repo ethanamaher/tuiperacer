@@ -174,15 +174,9 @@ func ResetModel(m *model) {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    // prevent typing after race end
-    if m.isRaceFinished() {
-        return m, nil
-    }
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle command keypresses first
-        // need ctrl+r to reset race
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -191,8 +185,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             return m, nil
 		}
 
+        if m.isRaceFinished() {
+            return m, nil
+        }
+
 		// Start timer on first keypress
-		if !m.started && len(m.typedWords) == 0 {
+		if !m.started {
 			m.started = true
 			m.startTime = time.Now()
 		}
@@ -203,6 +201,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         case " ":
             if m.currentWordIndex < len(m.targetWords) {
                 m.currentWordIndex++
+            } else if m.isRaceFinished() {
+                // modify so ends if last word is correct rather than
+                // requiring user to type a " "
+                m.endTime = time.Now()
+                saveToLeaderboard(m.db, "Player One", m.wpm)
+                m.leaderboard = fetchLeaderboard(m.db)
+                return m, func() tea.Msg { return tea.Quit() }
             }
         return m, nil
 		case "backspace":
@@ -220,17 +225,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             }
 
             m.calculateWPMAndAccuracy()
-
-            if m.isRaceFinished() {
-                m.endTime = time.Now()
-
-                saveToLeaderboard(m.db, "Player One", m.wpm)
-
-                m.leaderboard = fetchLeaderboard(m.db)
-                return m, func() tea.Msg { return tea.Quit() }
-            }
         }
-	}
+    }
 
 	return m, nil
 }
@@ -342,5 +338,7 @@ func (m *model) calculateWPMAndAccuracy() {
 }
 
 func (m model) isRaceFinished() bool {
-	return m.started && m.currentWordIndex >= len(m.targetWords) - 1
+	return  m.started && m.currentWordIndex >= len(m.targetWords) &&
+                // check last word
+                m.typedWords[len(m.typedWords)-1] == m.targetWords[len(m.targetWords)-1]
 }
