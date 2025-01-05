@@ -161,6 +161,20 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
     }
 }
 
+func matchingPrefixLength(a string, b string) int {
+    length := 0
+
+    for i := 0; i < len(a) && i < len(b); i++ {
+        if a[i] == b[i] {
+            length++
+        } else {
+            break
+        }
+    }
+
+    return length
+}
+
 func ResetModel(m *model) {
     m.targetText = randomSentence(m.wordList, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
@@ -288,14 +302,29 @@ func (m model) renderTypingArea() string {
                 renderedText.WriteString(wrongStyle.Render(typedWord))
             }
         } else if i == m.currentWordIndex {
-            if typedWord == targetWord {
+            if typedWord == targetWord { // if word correct
                 renderedText.WriteString(correctStyle.Render(targetWord))
-            } else if strings.HasPrefix(targetWord, typedWord) {
+
+            } else if strings.HasPrefix(targetWord, typedWord) { // if typed portion is correct so far
+                // correct portion
                 renderedText.WriteString(correctStyle.Render(typedWord))
+
+                // cursor
                 renderedText.WriteString(cursorStyle.Render(string(targetWord[len(typedWord)])))
+
+                // to type portion
                 renderedText.WriteString(normalStyle.Render(targetWord[len(typedWord)+1:]))
-            } else {
-                renderedText.WriteString(wrongStyle.Render(typedWord))
+            } else { // if typed portion has incorrect part
+                correctLength := matchingPrefixLength(targetWord, typedWord)
+                // print correct portion of string
+                renderedText.WriteString(correctStyle.Render(typedWord[:correctLength]))
+
+                // print incorrect portion of string
+                renderedText.WriteString(wrongStyle.Render(typedWord[correctLength:len(typedWord)]))
+
+                // print rest of word to type
+                renderedText.WriteString(cursorStyle.Render(string(targetWord[correctLength])))
+                renderedText.WriteString(normalStyle.Render(targetWord[correctLength+1:]))
             }
         } else {
             renderedText.WriteString(normalStyle.Render(targetWord))
