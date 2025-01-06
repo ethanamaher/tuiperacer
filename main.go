@@ -205,15 +205,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         case " ":
             if m.currentWordIndex < len(m.targetWords) {
                 m.currentWordIndex++
-            } else if m.isRaceFinished() {
-                // modify so ends if last word is correct rather than
-                // requiring user to type a " "
-                m.endTime = time.Now()
-                saveToLeaderboard(m.db, "Player One", m.wpm)
-                m.leaderboard = fetchLeaderboard(m.db)
-                return m, func() tea.Msg { return tea.Quit() }
             }
-        return m, nil
+
+            if m.isRaceFinished() {
+                m.endTime = time.Now()
+                m.calculateWPMAndAccuracy()
+                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                return m, tea.Quit
+
+            }
 		case "backspace":
             // go to previous word
             if m.currentWordIndex > 0 && len(m.typedWords[m.currentWordIndex]) == 0 {
@@ -229,6 +229,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             }
 
             m.calculateWPMAndAccuracy()
+            if m.isRaceFinished() {
+                m.endTime = time.Now()
+
+                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                return m, tea.Quit
+            }
         }
     }
 
@@ -251,9 +257,10 @@ func (m model) View() string {
 
 func (m model) renderLeaderboard() string {
     var render strings.Builder
+    m.leaderboard = fetchLeaderboard(m.db)
     render.WriteString("Leaderboard\n\n")
     for i, entry := range m.leaderboard {
-        render.WriteString(fmt.Sprintf("%d. %s - %d WPM\n", i+1, entry.Name, entry.WPM))
+        render.WriteString(fmt.Sprintf("%d. %s - %d WPM (%.2f%%)\n", i+1, entry.Name, entry.WPM, entry.Accuracy))
     }
     return render.String()
 }
@@ -385,7 +392,22 @@ func matchingPrefixLength(a string, b string) int {
 }
 
 func (m model) isRaceFinished() bool {
-	return  m.started && m.currentWordIndex >= len(m.targetWords) &&
-                // check last word
-                m.typedWords[len(m.typedWords)-1] == m.targetWords[len(m.targetWords)-1]
+    if m.started {
+        if m.currentWordIndex >= len(m.targetWords) {
+            return true
+        }
+
+        if len(m.typedWords) == len(m.targetWords) {
+            if m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1] {
+                return true
+            }
+        }
+
+
+    }
+
+    return false
+
 }
+
+

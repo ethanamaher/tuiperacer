@@ -11,6 +11,7 @@ func initializeDatabase(db *sql.DB) {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             wpm INTEGER NOT NULL,
+            accuracy REAL NOT NULL,
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`)
 
