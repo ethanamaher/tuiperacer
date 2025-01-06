@@ -20,7 +20,9 @@ const (
 )
 
 type model struct {
+    wordList    WordList
 	targetText  string
+    targetTextLength int
     targetWords []string
 	typedWords  []string
     currentWordIndex int
@@ -30,7 +32,7 @@ type model struct {
 	endTime     time.Time
 	wpm         int
 	accuracy    float64
-    wordList    WordList
+    incorrectCharCount int
 
     db *sql.DB
     leaderboard []LeaderboardEntry
@@ -108,6 +110,7 @@ func initializeModel(db *sql.DB) model {
 
     wordList := WordList { Words: words }
     targetText := randomWords(wordList, DEFAULT_COUNT)
+    targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
     leaderboard := fetchLeaderboard(db)
 	return model{
@@ -116,8 +119,11 @@ func initializeModel(db *sql.DB) model {
         targetWords: targetWords,
         typedWords: make([]string, len(targetWords)),
         currentWordIndex: 0,
+        incorrectCharCount: 0,
+        targetTextLength: targetTextLength,
         db: db,
         leaderboard: leaderboard,
+
 	}
 }
 
@@ -167,6 +173,7 @@ func ResetModel(m *model) {
     m.targetText = randomWords(m.wordList, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
     m.typedWords = make([]string, len(m.targetWords))
+    m.incorrectCharCount = 0
     m.started = false
     m.currentWordIndex = 0
     m.wpm = 0
@@ -229,6 +236,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 if m.currentWordIndex < len(m.targetWords) {
                     m.typedWords[m.currentWordIndex] += msg.String()
                 }
+            }
+
+            if len(m.typedWords[m.currentWordIndex]) > len(m.targetWords[m.currentWordIndex]) {
+                m.incorrectCharCount++
+            } else if msg.String() != string(m.targetWords[m.currentWordIndex][len(m.typedWords[m.currentWordIndex])-1]) {
+                m.incorrectCharCount++
             }
 
             m.calculateWPMAndAccuracy()
@@ -358,8 +371,8 @@ func (m *model) calculateWPMAndAccuracy() {
         elapsedMinutes = 1.0 / 60.0
     }
 
-    correctChars := 0
     correctWords := 0
+    correctChars := 0
 
     typedChars := 0
 
@@ -377,7 +390,7 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 
     if typedChars > 0 {
-        m.accuracy = (float64(correctChars) / float64(typedChars)) * 100
+        m.accuracy = 100 - ((float64(m.incorrectCharCount) / float64(correctChars)) * 100)
     } else {
         m.accuracy = 0
     }
