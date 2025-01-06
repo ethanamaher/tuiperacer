@@ -288,9 +288,11 @@ func (m model) renderTypingArea() string {
         if i <= m.currentWordIndex {
             renderedText.WriteString(styleText(targetWord, typedWord))
         } else {
+            // upcoming words are all normal style
             renderedText.WriteString(normalStyle.Render(targetWord))
         }
 
+        // spaces between words
         if i < len(m.targetWords) - 1 {
             renderedText.WriteString(" ")
         }
@@ -299,6 +301,7 @@ func (m model) renderTypingArea() string {
     return renderedText.String()
 }
 
+// is it possible to underline a diff color from foreground?
 func styleText(targetWord string, typedWord string) string {
     var renderedText strings.Builder
 
@@ -322,7 +325,7 @@ func styleText(targetWord string, typedWord string) string {
         }
     }
 
-    // if typed more than target color chars darker
+    // extra chars in word are different color
     if len(typedWord) > len(targetWord) {
         renderedText.WriteString(extraTextStyle.Render(typedWord[len(targetWord):]))
     }
@@ -332,30 +335,53 @@ func styleText(targetWord string, typedWord string) string {
 
 func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
-    wordCount := len(m.targetWords)
+    if elapsedMinutes == 0 {
+        elapsedMinutes = 1.0 / 60.0
+    }
 
     correctChars := 0
-    typedLength := len(m.typedWords)
-    targetLength := len(m.targetText)
+    correctWords := 0
 
-    for i := 0; i < typedLength && i < targetLength; i++ {
-        if m.typedWords[i] == m.targetWords[i] {
-            correctChars++
+    typedChars := 0
+
+    for _, word := range m.typedWords {
+        typedChars += len(word)
+    }
+
+    for i, typedWord := range m.typedWords {
+        if i < len(m.targetWords) && typedWord == m.targetWords[i] {
+            correctWords++
+            correctChars += len(typedWord)
+        } else if i < len(m.targetWords) {
+            correctChars += matchingPrefixLength(typedWord, m.targetWords[i])
         }
     }
 
-    if typedLength > 0 {
-        m.accuracy = (float64(correctChars) / float64(typedLength)) * 100
-        m.wpm = int(float64(wordCount) / elapsedMinutes)
-
-        if m.wpm < 0 {
-            m.wpm = 0
-        }
-
+    if typedChars > 0 {
+        m.accuracy = (float64(correctChars) / float64(typedChars)) * 100
     } else {
         m.accuracy = 0
+    }
+
+    m.wpm = int(float64(correctWords) / elapsedMinutes)
+
+    if m.wpm < 0 {
         m.wpm = 0
     }
+}
+
+func matchingPrefixLength(a string, b string) int {
+    length := 0
+
+    for i := 0; i < len(a) && i < len(b); i++ {
+        if a[i] == b[i] {
+            length++
+        } else {
+            break
+        }
+    }
+
+    return length
 }
 
 func (m model) isRaceFinished() bool {
