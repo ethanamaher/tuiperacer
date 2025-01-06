@@ -6,6 +6,7 @@ import (
     "fmt"
 )
 
+// initialize database if does not exist
 func initializeDatabase(db *sql.DB) {
     _, err := db.Exec(`CREATE TABLE IF NOT EXISTS leaderboard (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -18,6 +18,7 @@ import (
 const (
     DEFAULT_COUNT int = 15
 )
+
 type model struct {
 	targetText  string
     targetWords []string
@@ -40,7 +41,7 @@ type WordList struct {
 }
 
 // Color Guide
-// 15   Green
+// 15   White
 // 12   Blue
 // 9    Red
 // 8    Gray
@@ -98,10 +99,6 @@ func main() {
 	}
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
 func initializeModel(db *sql.DB) model {
     words, err := loadJSON("resources/wordlist.json")
     if err != nil {
@@ -110,7 +107,7 @@ func initializeModel(db *sql.DB) model {
     }
 
     wordList := WordList { Words: words }
-    targetText := randomSentence(wordList, DEFAULT_COUNT)
+    targetText := randomWords(wordList, DEFAULT_COUNT)
     targetWords := strings.Fields(targetText)
     leaderboard := fetchLeaderboard(db)
 	return model{
@@ -124,8 +121,7 @@ func initializeModel(db *sql.DB) model {
 	}
 }
 
-// improve speed on json loading
-// go-json?
+// load words from json file into []string
 func loadJSON(fileName string) ([]string, error){
     file, err := os.Open(fileName)
     if err != nil {
@@ -142,7 +138,8 @@ func loadJSON(fileName string) ([]string, error){
     return wordList.Words, nil
 }
 
-func randomSentence(words WordList, wordCount int) string {
+// select random words from wordList
+func randomWords(words WordList, wordCount int) string {
     selectedWords := make([]string, 0)
     existing := make(map[int]struct{}, 0)
     for i := 0; i < wordCount; i++ {
@@ -153,6 +150,7 @@ func randomSentence(words WordList, wordCount int) string {
     return strings.Join(selectedWords, " ")
 }
 
+// pick a random index that has not been selected
 func randomIndex(size int, existingIndexes map[int]struct{}) int {
     for {
         randomIndex := rand.IntN(size)
@@ -166,7 +164,7 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
 }
 
 func ResetModel(m *model) {
-    m.targetText = randomSentence(m.wordList, DEFAULT_COUNT)
+    m.targetText = randomWords(m.wordList, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
     m.typedWords = make([]string, len(m.targetWords))
     m.started = false
@@ -177,6 +175,11 @@ func ResetModel(m *model) {
     m.endTime = time.Time{}
 }
 
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+// update function to process keypresses in bubbletea model
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -189,6 +192,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             return m, nil
 		}
 
+        // if race is finished, wont allow other keys to be processed
         if m.isRaceFinished() {
             return m, nil
         }
@@ -201,8 +205,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle regular keystrokes
 		switch msg.String() {
-        // go to next word on " "
         case " ":
+            // if not last word, increment index of word we are on
             if m.currentWordIndex < len(m.targetWords) {
                 m.currentWordIndex++
             }
@@ -212,10 +216,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.calculateWPMAndAccuracy()
                 saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
                 return m, tea.Quit
-
             }
 		case "backspace":
-            // go to previous word
+            // if backspace first character of a word, decrement to previous word
             if m.currentWordIndex > 0 && len(m.typedWords[m.currentWordIndex]) == 0 {
                 m.currentWordIndex--
             } else if len(m.typedWords[m.currentWordIndex]) > 0 {
@@ -248,7 +251,6 @@ func (m model) View() string {
             fmt.Sprintf("Race finished!\n\nWPM: %d   Accuracy: %.2f%%\n\n%s",
                         m.wpm, m.accuracy, leaderboardView),)
     }
-
 
 	header := m.renderHeader()
 	typingArea := m.renderTypingArea()
@@ -293,7 +295,7 @@ func (m model) renderTypingArea() string {
         }
 
         if i <= m.currentWordIndex {
-            renderedText.WriteString(styleText(targetWord, typedWord))
+            renderedText.WriteString(m.styleText(targetWord, typedWord, i))
         } else {
             // upcoming words are all normal style
             renderedText.WriteString(normalStyle.Render(targetWord))
@@ -308,8 +310,13 @@ func (m model) renderTypingArea() string {
     return renderedText.String()
 }
 
-// is it possible to underline a diff color from foreground?
-func styleText(targetWord string, typedWord string) string {
+// style written text into correct colors
+// correct chars - white
+// incorrect chars - red
+// extra chars in word - dark red
+// cursor - blue
+// untyped chars - gray
+func (m model) styleText(targetWord string, typedWord string, wordIndex int) string {
     var renderedText strings.Builder
 
     for i := 0; i < len(targetWord); i++ {
@@ -322,10 +329,15 @@ func styleText(targetWord string, typedWord string) string {
                 // incorrect chars
                 renderedText.WriteString(incorrectStyle.Render(string(typedWord[i])))
             }
-        // this char is always cursor or " "
+
         } else if i == len(typedWord) {
             // cursor
-            renderedText.WriteString(cursorStyle.Render(string(targetWord[i])))
+            if wordIndex == m.currentWordIndex {
+                renderedText.WriteString(cursorStyle.Render(string(targetWord[i])))
+                continue
+            }
+            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
+
         // anything past typed text in target is rendered as normal
         } else {
             renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
@@ -377,6 +389,7 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 }
 
+// get the length of how many characters in the prefix of two words match
 func matchingPrefixLength(a string, b string) int {
     length := 0
 
@@ -392,22 +405,21 @@ func matchingPrefixLength(a string, b string) int {
 }
 
 func (m model) isRaceFinished() bool {
+    // race must have been started to be finished
     if m.started {
+        // space pressed on last word
         if m.currentWordIndex >= len(m.targetWords) {
             return true
         }
 
+        // last word typed correctly
         if len(m.typedWords) == len(m.targetWords) {
             if m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1] {
                 return true
             }
         }
-
-
     }
-
     return false
-
 }
 
 

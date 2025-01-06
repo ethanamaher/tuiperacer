@@ -11,6 +11,7 @@ type LeaderboardEntry struct {
     Accuracy float64
 }
 
+// save score to leaderboard in database
 func saveToLeaderboard(db *sql.DB, name string, wpm int, accuracy float64) {
     _, err := db.Exec(`INSERT INTO leaderboard (name, wpm, accuracy) VALUES (?, ?, ?)`, name, wpm, accuracy)
     if err != nil {
@@ -18,6 +19,7 @@ func saveToLeaderboard(db *sql.DB, name string, wpm int, accuracy float64) {
     }
 }
 
+// convert leaderboard from sql to array of entries
 func fetchLeaderboard(db *sql.DB) []LeaderboardEntry {
     rows, err := db.Query(`SELECT name, wpm, accuracy
         FROM leaderboard
