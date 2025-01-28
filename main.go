@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"strings"
+    "strconv"
 	"time"
     "os"
     "log"
     "math/rand/v2"
     "encoding/json"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -87,6 +89,13 @@ var (
 )
 
 func main() {
+    args := os.Args
+
+    wordCount := DEFAULT_COUNT
+    if len(args) == 2 {
+        wordCount, _ = strconv.Atoi(args[1])
+    }
+
     db, err := sql.Open("sqlite3", "resources/leaderboard.db")
     if err != nil {
         log.Fatal(err)
@@ -95,13 +104,15 @@ func main() {
 
     initializeDatabase(db)
 
-	p := tea.NewProgram(initializeModel(db))
+    // add check here
+
+	p := tea.NewProgram(initializeModel(db, wordCount))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
 }
 
-func initializeModel(db *sql.DB) model {
+func initializeModel(db *sql.DB, wordCount int) model {
     words, err := loadJSON("resources/wordlist.json")
     if err != nil {
         fmt.Println("Error loading JSON:", err)
@@ -109,7 +120,7 @@ func initializeModel(db *sql.DB) model {
     }
 
     wordList := WordList { Words: words }
-    targetText := randomWords(wordList, DEFAULT_COUNT)
+    targetText := randomWords(wordList, wordCount)
     targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
     leaderboard := fetchLeaderboard(db)
