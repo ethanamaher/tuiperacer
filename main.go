@@ -52,15 +52,15 @@ type WordList struct {
 // 3    Yellow
 
 var (
-	correctStyle = lipgloss.NewStyle().
+	correctCharStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("15")).
             Bold(true)
 
-	incorrectStyle   = lipgloss.NewStyle().
+	incorrectCharStyle   = lipgloss.NewStyle().
             Foreground(lipgloss.Color("9")).
             Bold(true)
 
-    extraTextStyle  = lipgloss.NewStyle().
+    extraCharStyle  = lipgloss.NewStyle().
             Foreground(lipgloss.Color("1")).
             Bold(true)
 
@@ -68,7 +68,7 @@ var (
             Foreground(lipgloss.Color("12")).
             Bold(true)
 
-	normalStyle  = lipgloss.NewStyle().
+	normalCharStyle  = lipgloss.NewStyle().
             Foreground(lipgloss.Color("8"))
 
     wpmStyle     = lipgloss.NewStyle().
@@ -89,6 +89,9 @@ var (
 )
 
 func main() {
+    // instead of doing in main, write function to process args
+    // 1. Word Count (-w [int num])
+    // 2. Wipe leaderboard (-x) no args
     args := os.Args
 
     wordCount := DEFAULT_COUNT
@@ -103,8 +106,6 @@ func main() {
     defer db.Close()
 
     initializeDatabase(db)
-
-    // add check here
 
 	p := tea.NewProgram(initializeModel(db, wordCount))
 	if _, err := p.Run(); err != nil {
@@ -124,6 +125,7 @@ func initializeModel(db *sql.DB, wordCount int) model {
     targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
     leaderboard := fetchLeaderboard(db)
+
 	return model{
         wordList:   wordList,
 		targetText: targetText,
@@ -134,7 +136,6 @@ func initializeModel(db *sql.DB, wordCount int) model {
         targetTextLength: targetTextLength,
         db: db,
         leaderboard: leaderboard,
-
 	}
 }
 
@@ -294,18 +295,9 @@ func (m model) renderLeaderboard() string {
 func (m model) renderHeader() string {
     title := titleStyle.Render()
 
-	// If test hasn't started yet, WPM and accuracy are 0
-	wpm := 0
-	accuracy := 0.0
-
-	if m.started {
-		wpm = m.wpm
-		accuracy = m.accuracy
-	}
-
 	return fmt.Sprintf(
  	    "%s\n%s WPM: %d   Accuracy: %.2f%%\nPress Ctrl+C to quit, Ctrl+R to restart.",
-		    title, wpmStyle.Render("Typing Test"), wpm, accuracy,
+		    title, wpmStyle.Render("Typing Test"), m.wpm, m.accuracy,
 	)
 }
 
@@ -314,6 +306,7 @@ func (m model) renderTypingArea() string {
 
     for i, targetWord := range m.targetWords {
         typedWord := ""
+
         if i < len(m.typedWords) {
             typedWord = m.typedWords[i]
         }
@@ -322,7 +315,7 @@ func (m model) renderTypingArea() string {
             renderedText.WriteString(m.styleText(targetWord, typedWord, i))
         } else {
             // upcoming words are all normal style
-            renderedText.WriteString(normalStyle.Render(targetWord))
+            renderedText.WriteString(normalCharStyle.Render(targetWord))
         }
 
         // spaces between words
@@ -348,11 +341,12 @@ func (m model) styleText(targetWord string, typedWord string, wordIndex int) str
         if i < len(typedWord) {
             if targetWord[i] == typedWord[i] {
                 // correct chars
-                renderedText.WriteString(correctStyle.Render(string(targetWord[i])))
+                renderedText.WriteString(correctCharStyle.Render(string(targetWord[i])))
             } else {
                 // incorrect chars
-                renderedText.WriteString(incorrectStyle.Render(string(typedWord[i])))
+                renderedText.WriteString(incorrectCharStyle.Render(string(typedWord[i])))
             }
+            continue
 
         } else if i == len(typedWord) {
             // cursor
@@ -360,17 +354,15 @@ func (m model) styleText(targetWord string, typedWord string, wordIndex int) str
                 renderedText.WriteString(cursorStyle.Render(string(targetWord[i])))
                 continue
             }
-            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
-
-        // anything past typed text in target is rendered as normal
-        } else {
-            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
         }
+
+        //untyped text
+        renderedText.WriteString(normalCharStyle.Render(string(targetWord[i])))
     }
 
     // extra chars in word are different color
     if len(typedWord) > len(targetWord) {
-        renderedText.WriteString(extraTextStyle.Render(typedWord[len(targetWord):]))
+        renderedText.WriteString(extraCharStyle.Render(typedWord[len(targetWord):]))
     }
 
     return renderedText.String()
@@ -413,10 +405,16 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 }
 
-// get the length of how many characters in the prefix of two words match
+// calculates the length of how many characters in the prefix of two words match
 func matchingPrefixLength(a string, b string) int {
-    length := 0
+    // if either word is empty
+    if len(a) == 0 || len(b) == 0 {
+        return 0
+    } else if a == b {
+        return len(a)
+    }
 
+    length := 0
     for i := 0; i < len(a) && i < len(b); i++ {
         if a[i] == b[i] {
             length++
@@ -432,18 +430,14 @@ func (m model) isRaceFinished() bool {
     // race must have been started to be finished
     if m.started {
         // space pressed on last word
-        if m.currentWordIndex >= len(m.targetWords) {
+        if m.currentWordIndex > len(m.targetWords) {
             return true
         }
 
         // last word typed correctly
-        if len(m.typedWords) == len(m.targetWords) {
-            if m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1] {
-                return true
-            }
+        if m.currentWordIndex == len(m.targetWords) {
+            return m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1]
         }
     }
     return false
 }
-
-
