@@ -15,6 +15,8 @@ import (
 
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
+
+    "github.com/ethanamaher/tuiperacer/utils"
 )
 
 const (
