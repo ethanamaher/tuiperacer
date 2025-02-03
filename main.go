@@ -121,19 +121,22 @@ func initializeModel(db *sql.DB, wordCount int) model {
     }
 
     wordList := WordList { Words: words }
+
     targetText := randomWords(wordList, wordCount)
     targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
+
     leaderboard := fetchLeaderboard(db)
 
 	return model{
         wordList:   wordList,
 		targetText: targetText,
+        targetTextLength: targetTextLength,
         targetWords: targetWords,
         typedWords: make([]string, len(targetWords)),
         currentWordIndex: 0,
         incorrectCharCount: 0,
-        targetTextLength: targetTextLength,
+
         db: db,
         leaderboard: leaderboard,
 	}
@@ -184,14 +187,20 @@ func randomIndex(size int, existingIndexes map[int]struct{}) int {
 func ResetModel(m *model) {
     m.targetText = randomWords(m.wordList, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
+
     m.typedWords = make([]string, len(m.targetWords))
+
     m.incorrectCharCount = 0
-    m.started = false
+
     m.currentWordIndex = 0
+
     m.wpm = 0
     m.accuracy = 0
+
     m.startTime = time.Time{}
     m.endTime = time.Time{}
+
+    m.started = false
 }
 
 func (m model) Init() tea.Cmd {
@@ -203,6 +212,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle command keypresses first
+
+        // ctrl+[other char] breaks
+        // think of what we do in this case? ignore stroke probably
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -211,9 +223,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             return m, nil
 		}
 
-        // if race is finished, wont allow other keys to be processed
+      // if race is finished, wont allow other keys to be processed
         if m.isRaceFinished() {
-            return m, nil
+            switch msg.String() {
+                default:
+                return m, nil
+            }
         }
 
 		// Start timer on first keypress
@@ -230,11 +245,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.currentWordIndex++
             }
 
+            // space on last word ends race
             if m.isRaceFinished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
                 saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
-                return m, tea.Quit
+                return m, nil
             }
 		case "backspace":
             // if backspace first character of a word, decrement to previous word
@@ -261,7 +277,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.endTime = time.Now()
 
                 saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
-                return m, tea.Quit
+                return m, nil
             }
         }
     }
@@ -430,14 +446,12 @@ func (m model) isRaceFinished() bool {
     // race must have been started to be finished
     if m.started {
         // space pressed on last word
-        if m.currentWordIndex > len(m.targetWords) {
+        if m.currentWordIndex >= len(m.targetWords) {
             return true
         }
 
         // last word typed correctly
-        if m.currentWordIndex == len(m.targetWords) {
-            return m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1]
-        }
+        return m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1]
     }
     return false
 }
