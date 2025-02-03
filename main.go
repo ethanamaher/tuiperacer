@@ -7,8 +7,6 @@ import (
 	"time"
     "os"
     "log"
-    "math/rand/v2"
-    "encoding/json"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -16,7 +14,8 @@ import (
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
 
-    "github.com/ethanamaher/tuiperacer/utils"
+    "github.com/ethanamaher/tuiperacer/utils/database"
+    "github.com/ethanamaher/tuiperacer/utils/dictionary"
 )
 
 const (
@@ -24,7 +23,7 @@ const (
 )
 
 type model struct {
-    wordList    WordList
+    dict   dictionary.Dictionary
 	targetText  string
     targetTextLength int
     targetWords []string
@@ -39,12 +38,9 @@ type model struct {
     incorrectCharCount int
 
     db *sql.DB
-    leaderboard []LeaderboardEntry
+    leaderboard []database.LeaderboardEntry
 }
 
-type WordList struct {
-    Words []string `json:"words"`
-}
 
 // Color Guide
 // 15   White
@@ -107,8 +103,6 @@ func main() {
     }
     defer db.Close()
 
-    initializeDatabase(db)
-
 	p := tea.NewProgram(initializeModel(db, wordCount))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -116,22 +110,24 @@ func main() {
 }
 
 func initializeModel(db *sql.DB, wordCount int) model {
-    words, err := loadJSON("resources/wordlist.json")
+    words, err := dictionary.LoadJSON("resources/wordlist.json")
     if err != nil {
         fmt.Println("Error loading JSON:", err)
         os.Exit(1)
     }
 
-    wordList := WordList { Words: words }
+    database.InitializeDatabase(db)
 
-    targetText := randomWords(wordList, wordCount)
+    dict := dictionary.Dictionary { Words: words }
+
+    targetText := dictionary.SelectRandomWords(dict, wordCount)
     targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
 
-    leaderboard := fetchLeaderboard(db)
+    leaderboard := database.FetchLeaderboard(db)
 
 	return model{
-        wordList:   wordList,
+        dict:  dict,
 		targetText: targetText,
         targetTextLength: targetTextLength,
         targetWords: targetWords,
@@ -144,50 +140,9 @@ func initializeModel(db *sql.DB, wordCount int) model {
 	}
 }
 
-// load words from json file into []string
-func loadJSON(fileName string) ([]string, error){
-    file, err := os.Open(fileName)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
-
-    var wordList WordList
-    decoder := json.NewDecoder(file)
-    if err := decoder.Decode(&wordList); err != nil {
-        return nil, err
-    }
-
-    return wordList.Words, nil
-}
-
-// select random words from wordList
-func randomWords(words WordList, wordCount int) string {
-    selectedWords := make([]string, 0)
-    existing := make(map[int]struct{}, 0)
-    for i := 0; i < wordCount; i++ {
-        randomIndex := randomIndex(len(words.Words), existing)
-        selectedWords = append(selectedWords, words.Words[randomIndex])
-    }
-
-    return strings.Join(selectedWords, " ")
-}
-
-// pick a random index that has not been selected
-func randomIndex(size int, existingIndexes map[int]struct{}) int {
-    for {
-        randomIndex := rand.IntN(size)
-
-        _, exists := existingIndexes[randomIndex]
-        if !exists {
-            existingIndexes[randomIndex] = struct{}{}
-            return randomIndex
-        }
-    }
-}
 
 func ResetModel(m *model) {
-    m.targetText = randomWords(m.wordList, DEFAULT_COUNT)
+    m.targetText = dictionary.SelectRandomWords(m.dict, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
 
     m.typedWords = make([]string, len(m.targetWords))
@@ -251,7 +206,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.isRaceFinished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
-                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                database.SaveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
                 return m, nil
             }
 		case "backspace":
@@ -278,7 +233,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.isRaceFinished() {
                 m.endTime = time.Now()
 
-                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                database.SaveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
                 return m, nil
             }
         }
@@ -302,7 +257,7 @@ func (m model) View() string {
 
 func (m model) renderLeaderboard() string {
     var render strings.Builder
-    m.leaderboard = fetchLeaderboard(m.db)
+    m.leaderboard = database.FetchLeaderboard(m.db)
     render.WriteString("Leaderboard\n\n")
     for i, entry := range m.leaderboard {
         render.WriteString(fmt.Sprintf("%d. %s - %d WPM (%.2f%%)\n", i+1, entry.Name, entry.WPM, entry.Accuracy))
