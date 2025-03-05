@@ -14,8 +14,8 @@ import (
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
 
-    "github.com/ethanamaher/tuiperacer/utils/database"
-    "github.com/ethanamaher/tuiperacer/utils/dictionary"
+    "github.com/ethanamaher/tuiperacer/internal/database"
+    "github.com/ethanamaher/tuiperacer/internal/dictionary"
 )
 
 const (
@@ -25,7 +25,6 @@ const (
 type model struct {
     dict   dictionary.Dictionary
 	targetText  string
-    targetTextLength int
     targetWords []string
 	typedWords  []string
     currentWordIndex int
@@ -121,7 +120,6 @@ func initializeModel(db *sql.DB, wordCount int) model {
     dict := dictionary.Dictionary { Words: words }
 
     targetText := dictionary.SelectRandomWords(dict, wordCount)
-    targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
 
     leaderboard := database.FetchLeaderboard(db)
@@ -129,7 +127,6 @@ func initializeModel(db *sql.DB, wordCount int) model {
 	return model{
         dict:  dict,
 		targetText: targetText,
-        targetTextLength: targetTextLength,
         targetWords: targetWords,
         typedWords: make([]string, len(targetWords)),
         currentWordIndex: 0,
@@ -141,7 +138,7 @@ func initializeModel(db *sql.DB, wordCount int) model {
 }
 
 
-func ResetModel(m *model) {
+func Reset(m *model) {
     m.targetText = dictionary.SelectRandomWords(m.dict, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
 
@@ -176,7 +173,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
         case "ctrl+r":
-            ResetModel(&m)
+            Reset(&m)
             return m, nil
 		}
 
@@ -300,12 +297,6 @@ func (m model) renderTypingArea() string {
     return renderedText.String()
 }
 
-// style written text into correct colors
-// correct chars - white
-// incorrect chars - red
-// extra chars in word - dark red
-// cursor - blue
-// untyped chars - gray
 func (m model) styleText(targetWord string, typedWord string, wordIndex int) string {
     var renderedText strings.Builder
 
@@ -341,6 +332,8 @@ func (m model) styleText(targetWord string, typedWord string, wordIndex int) str
     return renderedText.String()
 }
 
+// not working fully
+// does not count any skipped chars as incorrect when it should
 func (m *model) calculateWPMAndAccuracy() {
     elapsedMinutes := time.Since(m.startTime).Minutes()
     if elapsedMinutes == 0 {
@@ -350,25 +343,31 @@ func (m *model) calculateWPMAndAccuracy() {
     correctWords := 0
     correctChars := 0
 
-    typedChars := 0
-
-    for _, word := range m.typedWords {
-        typedChars += len(word)
-    }
+    expectedChars := 0
 
     for i, typedWord := range m.typedWords {
-        if i < len(m.targetWords) && typedWord == m.targetWords[i] {
+        expectedChars += len(m.targetWords[i])
+
+        if typedWord == m.targetWords[i] {
             correctWords++
             correctChars += len(typedWord)
-        } else if i < len(m.targetWords) {
+        } else {
             correctChars += matchingPrefixLength(typedWord, m.targetWords[i])
         }
     }
 
-    if typedChars > 0 {
-        m.accuracy = 100 - ((float64(m.incorrectCharCount) / float64(correctChars)) * 100)
+    skippedChars := expectedChars - (correctChars + m.incorrectCharCount)
+
+    if skippedChars < 0 {
+        skippedChars = 0
+    }
+
+    if expectedChars > 0 {
+        // does not count if character is skipped
+        //m.accuracy = ((float64(m.incorrectCharCount + skippedChars) / float64(expectedChars))*100)
+        m.accuracy = 100 * (float64(expectedChars) / float64(m.incorrectCharCount + skippedChars))
     } else {
-        m.accuracy = 0
+        m.accuracy = 100
     }
 
     m.wpm = int(float64(correctWords) / elapsedMinutes)
