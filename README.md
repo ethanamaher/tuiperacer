@@ -5,7 +5,14 @@ TUI based typing test written in Go
 Compete against yourself to improve your typing speed with this terminal typing test!
 
 <h1>Installing</h1>
+<h3>Required</h3>
 
+```
+golang
+gcc
+```
+
+clone repo with
 ```
 git clone https://github.com/ethanamaher/tuiperacer.git
 ```
