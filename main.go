@@ -172,14 +172,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
         // ctrl+[other char] breaks
         // think of what we do in this case? ignore stroke probably
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-        case "ctrl+r":
+
+        // bug on windows where <lctrl> will remove a character from typing area
+        // probably fix by using a keyboard package instead of bubbletea
+        // ex:
+        // example
+        // type <ctrl+c>
+        // -> xample and quit
+        switch msg.Type {
+        case tea.KeyCtrlC:
+            return m, tea.Quit
+        case tea.KeyCtrlR:
             ResetModel(&m)
             return m, nil
-		}
-
+        }
       // if race is finished, wont allow other keys to be processed
         if m.isRaceFinished() {
             switch msg.String() {
@@ -195,8 +201,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle regular keystrokes
-		switch msg.String() {
-        case " ":
+		switch msg.Type {
+        case tea.KeySpace:
             // if not last word, increment index of word we are on
             if m.currentWordIndex < len(m.targetWords) {
                 m.currentWordIndex++
@@ -209,7 +215,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 database.SaveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
                 return m, nil
             }
-		case "backspace":
+		case tea.KeyBackspace:
             // if backspace first character of a word, decrement to previous word
             if m.currentWordIndex > 0 && len(m.typedWords[m.currentWordIndex]) == 0 {
                 m.currentWordIndex--
@@ -371,11 +377,16 @@ func (m *model) calculateWPMAndAccuracy() {
         m.accuracy = 0
     }
 
+    if m.accuracy < 0 {
+        m.accuracy = 0
+    }
+
     m.wpm = int(float64(correctWords) / elapsedMinutes)
 
     if m.wpm < 0 {
         m.wpm = 0
     }
+
 }
 
 // calculates the length of how many characters in the prefix of two words match
