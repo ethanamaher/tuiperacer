@@ -7,14 +7,15 @@ import (
 	"time"
     "os"
     "log"
-    "math/rand/v2"
-    "encoding/json"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
+
+    "github.com/ethanamaher/tuiperacer/utils/database"
+    "github.com/ethanamaher/tuiperacer/utils/dictionary"
 )
 
 const (
@@ -22,7 +23,7 @@ const (
 )
 
 type model struct {
-    wordList    WordList
+    dict   dictionary.Dictionary
 	targetText  string
     targetTextLength int
     targetWords []string
@@ -37,12 +38,9 @@ type model struct {
     incorrectCharCount int
 
     db *sql.DB
-    leaderboard []LeaderboardEntry
+    leaderboard []database.LeaderboardEntry
 }
 
-type WordList struct {
-    Words []string `json:"words"`
-}
 
 // Color Guide
 // 15   White
@@ -52,15 +50,15 @@ type WordList struct {
 // 3    Yellow
 
 var (
-	correctStyle = lipgloss.NewStyle().
+	correctCharStyle = lipgloss.NewStyle().
             Foreground(lipgloss.Color("15")).
             Bold(true)
 
-	incorrectStyle   = lipgloss.NewStyle().
+	incorrectCharStyle   = lipgloss.NewStyle().
             Foreground(lipgloss.Color("9")).
             Bold(true)
 
-    extraTextStyle  = lipgloss.NewStyle().
+    extraCharStyle  = lipgloss.NewStyle().
             Foreground(lipgloss.Color("1")).
             Bold(true)
 
@@ -68,7 +66,7 @@ var (
             Foreground(lipgloss.Color("12")).
             Bold(true)
 
-	normalStyle  = lipgloss.NewStyle().
+	normalCharStyle  = lipgloss.NewStyle().
             Foreground(lipgloss.Color("8"))
 
     wpmStyle     = lipgloss.NewStyle().
@@ -89,6 +87,9 @@ var (
 )
 
 func main() {
+    // instead of doing in main, write function to process args
+    // 1. Word Count (-w [int num])
+    // 2. Wipe leaderboard (-x) no args
     args := os.Args
 
     wordCount := DEFAULT_COUNT
@@ -102,10 +103,6 @@ func main() {
     }
     defer db.Close()
 
-    initializeDatabase(db)
-
-    // add check here
-
 	p := tea.NewProgram(initializeModel(db, wordCount))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -113,84 +110,54 @@ func main() {
 }
 
 func initializeModel(db *sql.DB, wordCount int) model {
-    words, err := loadJSON("resources/wordlist.json")
+    words, err := dictionary.LoadJSON("resources/wordlist.json")
     if err != nil {
         fmt.Println("Error loading JSON:", err)
         os.Exit(1)
     }
 
-    wordList := WordList { Words: words }
-    targetText := randomWords(wordList, wordCount)
+    database.InitializeDatabase(db)
+
+    dict := dictionary.Dictionary { Words: words }
+
+    targetText := dictionary.SelectRandomWords(dict, wordCount)
     targetTextLength := len(targetText)
     targetWords := strings.Fields(targetText)
-    leaderboard := fetchLeaderboard(db)
+
+    leaderboard := database.FetchLeaderboard(db)
+
 	return model{
-        wordList:   wordList,
+        dict:  dict,
 		targetText: targetText,
+        targetTextLength: targetTextLength,
         targetWords: targetWords,
         typedWords: make([]string, len(targetWords)),
         currentWordIndex: 0,
         incorrectCharCount: 0,
-        targetTextLength: targetTextLength,
+
         db: db,
         leaderboard: leaderboard,
-
 	}
 }
 
-// load words from json file into []string
-func loadJSON(fileName string) ([]string, error){
-    file, err := os.Open(fileName)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
-
-    var wordList WordList
-    decoder := json.NewDecoder(file)
-    if err := decoder.Decode(&wordList); err != nil {
-        return nil, err
-    }
-
-    return wordList.Words, nil
-}
-
-// select random words from wordList
-func randomWords(words WordList, wordCount int) string {
-    selectedWords := make([]string, 0)
-    existing := make(map[int]struct{}, 0)
-    for i := 0; i < wordCount; i++ {
-        randomIndex := randomIndex(len(words.Words), existing)
-        selectedWords = append(selectedWords, words.Words[randomIndex])
-    }
-
-    return strings.Join(selectedWords, " ")
-}
-
-// pick a random index that has not been selected
-func randomIndex(size int, existingIndexes map[int]struct{}) int {
-    for {
-        randomIndex := rand.IntN(size)
-
-        _, exists := existingIndexes[randomIndex]
-        if !exists {
-            existingIndexes[randomIndex] = struct{}{}
-            return randomIndex
-        }
-    }
-}
 
 func ResetModel(m *model) {
-    m.targetText = randomWords(m.wordList, DEFAULT_COUNT)
+    m.targetText = dictionary.SelectRandomWords(m.dict, DEFAULT_COUNT)
     m.targetWords = strings.Fields(m.targetText)
+
     m.typedWords = make([]string, len(m.targetWords))
+
     m.incorrectCharCount = 0
-    m.started = false
+
     m.currentWordIndex = 0
+
     m.wpm = 0
     m.accuracy = 0
+
     m.startTime = time.Time{}
     m.endTime = time.Time{}
+
+    m.started = false
 }
 
 func (m model) Init() tea.Cmd {
@@ -202,6 +169,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle command keypresses first
+
+        // ctrl+[other char] breaks
+        // think of what we do in this case? ignore stroke probably
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -210,9 +180,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             return m, nil
 		}
 
-        // if race is finished, wont allow other keys to be processed
+      // if race is finished, wont allow other keys to be processed
         if m.isRaceFinished() {
-            return m, nil
+            switch msg.String() {
+                default:
+                return m, nil
+            }
         }
 
 		// Start timer on first keypress
@@ -229,11 +202,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.currentWordIndex++
             }
 
+            // space on last word ends race
             if m.isRaceFinished() {
                 m.endTime = time.Now()
                 m.calculateWPMAndAccuracy()
-                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
-                return m, tea.Quit
+                database.SaveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                return m, nil
             }
 		case "backspace":
             // if backspace first character of a word, decrement to previous word
@@ -259,8 +233,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             if m.isRaceFinished() {
                 m.endTime = time.Now()
 
-                saveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
-                return m, tea.Quit
+                database.SaveToLeaderboard(m.db, "Player One", m.wpm, m.accuracy)
+                return m, nil
             }
         }
     }
@@ -283,7 +257,7 @@ func (m model) View() string {
 
 func (m model) renderLeaderboard() string {
     var render strings.Builder
-    m.leaderboard = fetchLeaderboard(m.db)
+    m.leaderboard = database.FetchLeaderboard(m.db)
     render.WriteString("Leaderboard\n\n")
     for i, entry := range m.leaderboard {
         render.WriteString(fmt.Sprintf("%d. %s - %d WPM (%.2f%%)\n", i+1, entry.Name, entry.WPM, entry.Accuracy))
@@ -294,18 +268,9 @@ func (m model) renderLeaderboard() string {
 func (m model) renderHeader() string {
     title := titleStyle.Render()
 
-	// If test hasn't started yet, WPM and accuracy are 0
-	wpm := 0
-	accuracy := 0.0
-
-	if m.started {
-		wpm = m.wpm
-		accuracy = m.accuracy
-	}
-
 	return fmt.Sprintf(
  	    "%s\n%s WPM: %d   Accuracy: %.2f%%\nPress Ctrl+C to quit, Ctrl+R to restart.",
-		    title, wpmStyle.Render("Typing Test"), wpm, accuracy,
+		    title, wpmStyle.Render("Typing Test"), m.wpm, m.accuracy,
 	)
 }
 
@@ -314,6 +279,7 @@ func (m model) renderTypingArea() string {
 
     for i, targetWord := range m.targetWords {
         typedWord := ""
+
         if i < len(m.typedWords) {
             typedWord = m.typedWords[i]
         }
@@ -322,7 +288,7 @@ func (m model) renderTypingArea() string {
             renderedText.WriteString(m.styleText(targetWord, typedWord, i))
         } else {
             // upcoming words are all normal style
-            renderedText.WriteString(normalStyle.Render(targetWord))
+            renderedText.WriteString(normalCharStyle.Render(targetWord))
         }
 
         // spaces between words
@@ -348,11 +314,12 @@ func (m model) styleText(targetWord string, typedWord string, wordIndex int) str
         if i < len(typedWord) {
             if targetWord[i] == typedWord[i] {
                 // correct chars
-                renderedText.WriteString(correctStyle.Render(string(targetWord[i])))
+                renderedText.WriteString(correctCharStyle.Render(string(targetWord[i])))
             } else {
                 // incorrect chars
-                renderedText.WriteString(incorrectStyle.Render(string(typedWord[i])))
+                renderedText.WriteString(incorrectCharStyle.Render(string(typedWord[i])))
             }
+            continue
 
         } else if i == len(typedWord) {
             // cursor
@@ -360,17 +327,15 @@ func (m model) styleText(targetWord string, typedWord string, wordIndex int) str
                 renderedText.WriteString(cursorStyle.Render(string(targetWord[i])))
                 continue
             }
-            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
-
-        // anything past typed text in target is rendered as normal
-        } else {
-            renderedText.WriteString(normalStyle.Render(string(targetWord[i])))
         }
+
+        //untyped text
+        renderedText.WriteString(normalCharStyle.Render(string(targetWord[i])))
     }
 
     // extra chars in word are different color
     if len(typedWord) > len(targetWord) {
-        renderedText.WriteString(extraTextStyle.Render(typedWord[len(targetWord):]))
+        renderedText.WriteString(extraCharStyle.Render(typedWord[len(targetWord):]))
     }
 
     return renderedText.String()
@@ -413,10 +378,16 @@ func (m *model) calculateWPMAndAccuracy() {
     }
 }
 
-// get the length of how many characters in the prefix of two words match
+// calculates the length of how many characters in the prefix of two words match
 func matchingPrefixLength(a string, b string) int {
-    length := 0
+    // if either word is empty
+    if len(a) == 0 || len(b) == 0 {
+        return 0
+    } else if a == b {
+        return len(a)
+    }
 
+    length := 0
     for i := 0; i < len(a) && i < len(b); i++ {
         if a[i] == b[i] {
             length++
@@ -437,13 +408,7 @@ func (m model) isRaceFinished() bool {
         }
 
         // last word typed correctly
-        if len(m.typedWords) == len(m.targetWords) {
-            if m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1] {
-                return true
-            }
-        }
+        return m.typedWords[len(m.targetWords)-1] == m.targetWords[len(m.targetWords)-1]
     }
     return false
 }
-
-
