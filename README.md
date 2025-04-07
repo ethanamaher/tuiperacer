@@ -34,3 +34,6 @@ from there you can run the file
 ./tuiperacer <word_count>
 ```
 with default wordcount of 15 if not specified
+
+![image](https://github.com/user-attachments/assets/f663a4ce-de96-40b6-b73c-9e51e02efc09)
+
